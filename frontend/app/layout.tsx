@@ -3,6 +3,7 @@ import { Geist } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
+import RealtimeToastListener from "@/components/realtime-toast-listerner";
 
 const defaultUrl = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
@@ -35,7 +36,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
-          <Toaster />
+    <RealtimeToastListener /> 
         </ThemeProvider>
       </body>
     </html>

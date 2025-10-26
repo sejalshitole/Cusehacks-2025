@@ -18,6 +18,7 @@ interface Topic {
   name: string;
   description?: string;
 }
+import { useRouter } from 'next/navigation';
 
 interface Video {
   session_id: string;
@@ -30,6 +31,7 @@ interface Video {
 }
 
 export default function MyVideosPage() {
+  const router = useRouter();
   const [videos, setVideos] = useState<Video[]>([]);
   const [filteredVideos, setFilteredVideos] = useState<Video[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
@@ -331,6 +333,14 @@ export default function MyVideosPage() {
                         className="flex-1"
                       >
                         Rename
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => router.push(`/protected/videos/${video.session_id}`)}
+                        className="flex-1"
+                      >
+                        View
                       </Button>
                       <Button
                         size="sm"

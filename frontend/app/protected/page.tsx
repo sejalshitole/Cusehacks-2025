@@ -5,9 +5,7 @@ import { toast } from "sonner";
 import CalendarWrapper from "@/components/calendar-wrapper";
 
 export default function ProtectedPage() {
-  useEffect(() => {
-    toast("Welcome!");
-  }, []);
+
 
   return (
     <div className="flex-1 w-full flex flex-col gap-12">
