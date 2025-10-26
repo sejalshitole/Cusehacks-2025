@@ -9,6 +9,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { createClient } from "@/lib/supabase/client";
 
 type FeedbackSegment = {
@@ -50,6 +59,11 @@ export default function WebcamPage() {
     "idle" | "recording" | "processing" | "review"
   >("idle");
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [topics, setTopics] = useState<any[]>([]);
+  const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
+  const [isCreatingTopic, setIsCreatingTopic] = useState(false);
+  const [newTopicName, setNewTopicName] = useState("");
+  const [newTopicDescription, setNewTopicDescription] = useState("");
   const supabase = createClient();
 
   // Fetch user ID on component mount
@@ -69,6 +83,34 @@ export default function WebcamPage() {
 
     fetchUser();
   }, []);
+
+  // Fetch topics when userId is available
+  useEffect(() => {
+    if (!userId) return;
+
+    const fetchTopics = async () => {
+      try {
+        const response = await fetch(`http://localhost:8000/api/topics/${userId}`);
+        const data = await response.json();
+
+        if (data.success && data.topics) {
+          setTopics(data.topics);
+
+          // Auto-select "General" topic if available
+          const generalTopic = data.topics.find((t: any) => t.name === "General");
+          if (generalTopic) {
+            setSelectedTopicId(generalTopic.id);
+          } else if (data.topics.length > 0) {
+            setSelectedTopicId(data.topics[0].id);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching topics:", err);
+      }
+    };
+
+    fetchTopics();
+  }, [userId]);
 
   useEffect(() => {
     return () => {
@@ -108,7 +150,7 @@ export default function WebcamPage() {
       }
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
       const data = JSON.parse(event.data);
 
       if (data.type === "auth_success") {
@@ -187,6 +229,28 @@ export default function WebcamPage() {
         setVideoUrl(data.url);
         setRecordingState("review");
         console.log("Video URL:", data.url);
+
+        // Save video session with topic
+        if (data.session_id && userId && selectedTopicId) {
+          try {
+            await fetch("http://localhost:8000/api/video-sessions/save", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                session_id: data.session_id,
+                user_id: userId,
+                topic_id: selectedTopicId,
+                video_url: data.url,
+                filename: `${data.session_id}.mp4`,
+              }),
+            });
+            console.log("Video session saved with topic");
+          } catch (err) {
+            console.error("Failed to save video session:", err);
+          }
+        }
       } else if (data.type === "feedback_saved") {
         const savedCount = data.segments_saved ?? data.count ?? 0;
         setFeedbackText(
@@ -340,6 +404,39 @@ export default function WebcamPage() {
         }
       }
     }, 1000); // Send one frame per second
+  };
+
+  const handleCreateTopic = async () => {
+    if (!newTopicName.trim() || !userId) return;
+
+    try {
+      const response = await fetch("http://localhost:8000/api/topics/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          name: newTopicName.trim(),
+          description: newTopicDescription.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.topic) {
+        setTopics([...topics, data.topic]);
+        setSelectedTopicId(data.topic.id);
+        setNewTopicName("");
+        setNewTopicDescription("");
+        setIsCreatingTopic(false);
+      } else {
+        alert(data.message || "Failed to create topic");
+      }
+    } catch (err) {
+      console.error("Error creating topic:", err);
+      alert("Failed to create topic");
+    }
   };
 
   const startWebcam = async () => {
@@ -535,6 +632,72 @@ export default function WebcamPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className='space-y-4'>
+                {/* Topic Selection */}
+                {recordingState === "idle" && (
+                  <div className='space-y-3 pb-4 border-b'>
+                    <Label htmlFor='topic-select'>Recording Topic</Label>
+                    {!isCreatingTopic ? (
+                      <div className='flex gap-2'>
+                        <Select
+                          value={selectedTopicId || ""}
+                          onValueChange={setSelectedTopicId}
+                        >
+                          <SelectTrigger id='topic-select' className='flex-1'>
+                            <SelectValue placeholder='Select a topic' />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {topics.map((topic) => (
+                              <SelectItem key={topic.id} value={topic.id}>
+                                {topic.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          onClick={() => setIsCreatingTopic(true)}
+                        >
+                          + New
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className='space-y-2'>
+                        <Input
+                          placeholder='Topic name'
+                          value={newTopicName}
+                          onChange={(e) => setNewTopicName(e.target.value)}
+                        />
+                        <Input
+                          placeholder='Description (optional)'
+                          value={newTopicDescription}
+                          onChange={(e) => setNewTopicDescription(e.target.value)}
+                        />
+                        <div className='flex gap-2'>
+                          <Button
+                            size='sm'
+                            onClick={handleCreateTopic}
+                            disabled={!newTopicName.trim()}
+                          >
+                            Create
+                          </Button>
+                          <Button
+                            size='sm'
+                            variant='outline'
+                            onClick={() => {
+                              setIsCreatingTopic(false);
+                              setNewTopicName("");
+                              setNewTopicDescription("");
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className='flex flex-col space-y-2'>
                   {recordingState === "idle" && (
                     <Button onClick={startWebcam} size='lg'>

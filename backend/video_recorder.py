@@ -344,66 +344,85 @@ async def upload_to_supabase(video_path: str, session_id: str, user_id: str = "a
 
 
 async def get_user_videos(user_id: str) -> Optional[List[dict]]:
-    """Retrieve all videos for a specific user from Supabase storage"""
+    """Retrieve all videos for a specific user from Supabase storage and database"""
     if not supabase:
         print("Supabase client not initialized")
         return None
-    
-    try:
-        # List all files in the user's folder
-        response = (
-            supabase.storage
-            .from_("videos")
-            .list(
-                path=f"{user_id}/",
 
-            )
-        )
-        print(f"Supabase list response: {response}")
-        print(f"Length of response: {len(response) if response else 0}")
-        
-        if not response:
-            print(f"No videos found for user {user_id}")
+    def fetch_videos():
+        try:
+            # First, try to get videos from video_sessions table (with topic info)
+            try:
+                db_response = supabase.table("video_sessions")\
+                    .select("*, topics(id, name, description)")\
+                    .eq("user_id", user_id)\
+                    .order("created_at", desc=True)\
+                    .execute()
+
+                if db_response.data:
+                    print(f"Found {len(db_response.data)} videos in database")
+                    return db_response.data
+            except Exception as db_error:
+                print(f"Database query failed, falling back to storage listing: {db_error}")
+
+            # Fallback: List files from storage (for videos not yet in database)
+            response = supabase.storage.from_("videos").list(path=f"{user_id}/")
+            print(f"Supabase storage list response: {response}")
+            print(f"Length of response: {len(response) if response else 0}")
+
+            if not response:
+                print(f"No videos found for user {user_id}")
+                return []
+
+            videos = []
+            for file in response:
+                # Skip folders and files without metadata
+                if not file.get('name', '').endswith('.mp4'):
+                    print(f"Skipping non-video file/folder: {file.get('name')}")
+                    continue
+
+                if not file.get('metadata'):
+                    print(f"Skipping item without metadata: {file.get('name')}")
+                    continue
+
+                # Each file represents a session
+                file_path = f"{user_id}/{file['name']}"
+
+                # Get public URL
+                public_url = supabase.storage.from_(supabase_bucket).get_public_url(file_path)
+
+                # Extract session_id from filename (remove .mp4 extension)
+                session_id = file['name'].replace('.mp4', '')
+
+                video_info = {
+                    "session_id": session_id,
+                    "video_url": public_url,
+                    "url": public_url,  # Keep for backward compatibility
+                    "created_at": file.get('created_at', ''),
+                    "updated_at": file.get('updated_at', ''),
+                    "size_bytes": file.get('metadata', {}).get('size', 0),
+                    "size": file.get('metadata', {}).get('size', 0),  # Keep for backward compatibility
+                    "filename": file['name'],
+                    "name": file['name'],  # Keep for backward compatibility
+                    "topics": None  # No topic info from storage
+                }
+                videos.append(video_info)
+
+            # Sort by created date (newest first)
+            videos.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+            print(f"Found {len(videos)} videos for user {user_id}")
+            return videos
+        except Exception as e:
+            print(f"Error retrieving videos for user {user_id}: {e}")
+            import traceback
+            traceback.print_exc()
             return []
-        
-        videos = []
-        for file in response:
-            # Skip folders and files without metadata (folders don't have .mp4 extension)
-            if not file.get('name', '').endswith('.mp4'):
-                print(f"Skipping non-video file/folder: {file.get('name')}")
-                continue
-                
-            # Skip if no metadata (folders don't have metadata)
-            if not file.get('metadata'):
-                print(f"Skipping item without metadata: {file.get('name')}")
-                continue
-            
-            # Each file represents a session
-            file_path = f"{user_id}/{file['name']}"
-            
-            # Get public URL
-            public_url = supabase.storage.from_(supabase_bucket).get_public_url(file_path)
-            
-            # Extract session_id from filename (remove .mp4 extension)
-            session_id = file['name'].replace('.mp4', '')
-            
-            video_info = {
-                "session_id": session_id,
-                "url": public_url,
-                "created_at": file.get('created_at', ''),
-                "updated_at": file.get('updated_at', ''),
-                "size": file.get('metadata', {}).get('size', 0),
-                "name": file['name']
-            }
-            videos.append(video_info)
-        
-        # Sort by created date (newest first)
-        videos.sort(key=lambda x: x.get('created_at', ''), reverse=True)
-        
-        print(f"Found {len(videos)} videos for user {user_id}")
-        return videos
+
+    try:
+        return await asyncio.to_thread(fetch_videos)
     except Exception as e:
-        print(f"Error retrieving videos for user {user_id}: {e}")
+        print(f"Error in get_user_videos: {e}")
         return None
 
 
@@ -623,3 +642,281 @@ async def delete_video(user_id: str, filename: str) -> Dict[str, Any]:
             return {"success": False, "message": error_message}
 
     return await asyncio.to_thread(delete_operations)
+
+
+async def get_user_topics(user_id: str) -> Dict[str, Any]:
+    """
+    Get all topics for a specific user.
+
+    Args:
+        user_id: The user ID
+
+    Returns:
+        Dictionary with success flag and topics list
+    """
+    if not supabase:
+        return {"success": False, "message": "Supabase client not initialized", "topics": []}
+
+    def fetch_topics():
+        try:
+            response = supabase.table("topics")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .order("created_at", desc=False)\
+                .execute()
+
+            topics = response.data if response.data else []
+
+            # Ensure "General" topic exists
+            if not any(t.get('name') == 'General' for t in topics):
+                # Create default General topic
+                general_topic = supabase.table("topics").insert({
+                    "user_id": user_id,
+                    "name": "General",
+                    "description": "Default topic for uncategorized recordings"
+                }).execute()
+
+                if general_topic.data:
+                    topics.insert(0, general_topic.data[0])
+
+            return {"success": True, "topics": topics}
+        except Exception as e:
+            print(f"Error fetching topics: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "message": str(e), "topics": []}
+
+    return await asyncio.to_thread(fetch_topics)
+
+
+async def create_topic(user_id: str, name: str, description: str = "") -> Dict[str, Any]:
+    """
+    Create a new topic for a user.
+
+    Args:
+        user_id: The user ID
+        name: Topic name
+        description: Optional topic description
+
+    Returns:
+        Dictionary with success flag and topic data
+    """
+    if not supabase:
+        return {"success": False, "message": "Supabase client not initialized"}
+
+    def insert_topic():
+        try:
+            response = supabase.table("topics").insert({
+                "user_id": user_id,
+                "name": name,
+                "description": description
+            }).execute()
+
+            if response.data:
+                return {"success": True, "topic": response.data[0]}
+            else:
+                return {"success": False, "message": "Failed to create topic"}
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Error creating topic: {error_msg}")
+            import traceback
+            traceback.print_exc()
+
+            # Check for unique constraint violation
+            if "duplicate" in error_msg.lower() or "unique" in error_msg.lower():
+                return {"success": False, "message": "A topic with this name already exists"}
+
+            return {"success": False, "message": error_msg}
+
+    return await asyncio.to_thread(insert_topic)
+
+
+async def save_video_session(
+    session_id: str,
+    user_id: str,
+    topic_id: str,
+    video_url: str,
+    filename: str,
+    duration_seconds: float = None,
+    size_bytes: int = None
+) -> Dict[str, Any]:
+    """
+    Save video session metadata to database.
+
+    Args:
+        session_id: Unique session identifier
+        user_id: User ID
+        topic_id: Topic ID to link the video to
+        video_url: Public URL of the video
+        filename: Video filename
+        duration_seconds: Optional video duration
+        size_bytes: Optional file size
+
+    Returns:
+        Dictionary with success flag
+    """
+    if not supabase:
+        return {"success": False, "message": "Supabase client not initialized"}
+
+    def insert_session():
+        try:
+            response = supabase.table("video_sessions").insert({
+                "session_id": session_id,
+                "user_id": user_id,
+                "topic_id": topic_id if topic_id else None,
+                "video_url": video_url,
+                "filename": filename,
+                "duration_seconds": duration_seconds,
+                "size_bytes": size_bytes
+            }).execute()
+
+            if response.data:
+                return {"success": True, "video_session": response.data[0]}
+            else:
+                return {"success": False, "message": "Failed to save video session"}
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Error saving video session: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "message": error_msg}
+
+    return await asyncio.to_thread(insert_session)
+
+
+async def get_videos_by_topic(user_id: str, topic_id: str = None) -> Dict[str, Any]:
+    """
+    Get all videos for a user, optionally filtered by topic.
+
+    Args:
+        user_id: User ID
+        topic_id: Optional topic ID to filter by
+
+    Returns:
+        Dictionary with success flag and videos list
+    """
+    if not supabase:
+        return {"success": False, "message": "Supabase client not initialized", "videos": []}
+
+    def fetch_videos():
+        try:
+            query = supabase.table("video_sessions")\
+                .select("*, topics(id, name, description)")\
+                .eq("user_id", user_id)
+
+            if topic_id:
+                query = query.eq("topic_id", topic_id)
+
+            response = query.order("created_at", desc=True).execute()
+
+            videos = response.data if response.data else []
+
+            return {"success": True, "videos": videos}
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Error fetching videos by topic: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "message": error_msg, "videos": []}
+
+    return await asyncio.to_thread(fetch_videos)
+
+
+async def cleanup_all_user_data(user_id: str) -> Dict[str, Any]:
+    """
+    Clean up ALL user data - videos, sessions, topics, and feedback.
+    Use with caution - this is irreversible!
+
+    Args:
+        user_id: The user ID to clean up
+
+    Returns:
+        Dictionary with success flag and cleanup details
+    """
+    if not supabase:
+        return {"success": False, "message": "Supabase client not initialized"}
+
+    def cleanup_operations():
+        deleted_items = {
+            "storage_files": 0,
+            "video_sessions": 0,
+            "feedback_segments": 0,
+            "topics": 0
+        }
+
+        try:
+            # 1. Delete all files from storage
+            print(f"Cleaning up storage files for user {user_id}...")
+            try:
+                # List all files in user's folder
+                files = supabase.storage.from_(supabase_bucket).list(path=f"{user_id}/")
+
+                if files:
+                    # Delete each file
+                    for file in files:
+                        if file.get('name', '').endswith('.mp4'):
+                            file_path = f"{user_id}/{file['name']}"
+                            try:
+                                supabase.storage.from_(supabase_bucket).remove([file_path])
+                                deleted_items["storage_files"] += 1
+                                print(f"Deleted storage file: {file_path}")
+                            except Exception as file_error:
+                                print(f"Error deleting file {file_path}: {file_error}")
+            except Exception as storage_error:
+                print(f"Error cleaning storage: {storage_error}")
+
+            # 2. Delete all feedback segments
+            print(f"Deleting feedback segments for user {user_id}...")
+            try:
+                feedback_response = supabase.table("ai_feedback_segments")\
+                    .delete()\
+                    .eq("user_id", user_id)\
+                    .execute()
+                deleted_items["feedback_segments"] = len(feedback_response.data) if feedback_response.data else 0
+                print(f"Deleted {deleted_items['feedback_segments']} feedback segments")
+            except Exception as feedback_error:
+                print(f"Error deleting feedback segments: {feedback_error}")
+
+            # 3. Delete all video sessions
+            print(f"Deleting video sessions for user {user_id}...")
+            try:
+                sessions_response = supabase.table("video_sessions")\
+                    .delete()\
+                    .eq("user_id", user_id)\
+                    .execute()
+                deleted_items["video_sessions"] = len(sessions_response.data) if sessions_response.data else 0
+                print(f"Deleted {deleted_items['video_sessions']} video sessions")
+            except Exception as sessions_error:
+                print(f"Error deleting video sessions: {sessions_error}")
+
+            # 4. Delete all topics
+            print(f"Deleting topics for user {user_id}...")
+            try:
+                topics_response = supabase.table("topics")\
+                    .delete()\
+                    .eq("user_id", user_id)\
+                    .execute()
+                deleted_items["topics"] = len(topics_response.data) if topics_response.data else 0
+                print(f"Deleted {deleted_items['topics']} topics")
+            except Exception as topics_error:
+                print(f"Error deleting topics: {topics_error}")
+
+            return {
+                "success": True,
+                "message": "All user data cleaned successfully",
+                "deleted": deleted_items,
+                "total_items": sum(deleted_items.values())
+            }
+
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Error during cleanup: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "message": error_msg,
+                "deleted": deleted_items
+            }
+
+    return await asyncio.to_thread(cleanup_operations)
