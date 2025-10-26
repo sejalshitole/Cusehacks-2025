@@ -463,3 +463,163 @@ async def save_feedback_segments_to_supabase(
             return {"success": False, "count": 0, "error": error_text}
 
     return await asyncio.to_thread(insert_rows)
+
+
+async def rename_video(user_id: str, old_filename: str, new_filename: str) -> Dict[str, Any]:
+    """
+    Rename a video file in Supabase storage.
+
+    Args:
+        user_id: The user who owns the video
+        old_filename: Current filename (e.g., "session_id.mp4")
+        new_filename: New filename (should end with .mp4)
+
+    Returns:
+        Dictionary with success flag and message
+    """
+    if not supabase:
+        return {"success": False, "message": "Supabase client not initialized"}
+
+    # Ensure new filename has .mp4 extension
+    if not new_filename.endswith('.mp4'):
+        new_filename = f"{new_filename}.mp4"
+
+    old_path = f"{user_id}/{old_filename}"
+    new_path = f"{user_id}/{new_filename}"
+
+    def rename_operations():
+        try:
+            # Download the file
+            print(f"Downloading file from: {old_path}")
+            file_data = supabase.storage.from_(supabase_bucket).download(old_path)
+
+            if not file_data:
+                return {"success": False, "message": "Video file not found"}
+
+            # Upload with new name
+            print(f"Uploading file to: {new_path}")
+            upload_response = supabase.storage.from_(supabase_bucket).upload(
+                new_path,
+                file_data,
+                {"content-type": "video/mp4"}
+            )
+            print(f"Upload response: {upload_response}")
+
+            # Delete old file
+            print(f"Deleting old file: {old_path}")
+            supabase.storage.from_(supabase_bucket).remove([old_path])
+
+            # Get public URL of renamed file
+            public_url = supabase.storage.from_(supabase_bucket).get_public_url(new_path)
+
+            return {
+                "success": True,
+                "message": "Video renamed successfully",
+                "new_filename": new_filename,
+                "url": public_url
+            }
+        except Exception as e:
+            print(f"Error renaming video: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "message": str(e)}
+
+    return await asyncio.to_thread(rename_operations)
+
+
+async def delete_video(user_id: str, filename: str) -> Dict[str, Any]:
+    """
+    Delete a video file from Supabase storage.
+
+    Args:
+        user_id: The user who owns the video
+        filename: Filename to delete (e.g., "session_id.mp4")
+
+    Returns:
+        Dictionary with success flag and message
+    """
+    if not supabase:
+        return {"success": False, "message": "Supabase client not initialized"}
+
+    file_path = f"{user_id}/{filename}"
+
+    def delete_operations():
+        try:
+            # First, verify the file exists
+            print(f"Attempting to delete file: {file_path}")
+            print(f"Bucket: {supabase_bucket}, User ID: {user_id}, Filename: {filename}")
+
+            # Try to list the file first to verify it exists and get its details
+            file_to_delete = None
+            try:
+                list_response = supabase.storage.from_(supabase_bucket).list(path=f"{user_id}/")
+                print(f"Files in user directory before delete: {list_response}")
+
+                # Find the specific file
+                file_to_delete = next((f for f in list_response if f.get('name') == filename), None)
+                if not file_to_delete:
+                    error_msg = f"File '{filename}' not found in user directory"
+                    print(f"ERROR: {error_msg}")
+                    return {"success": False, "message": error_msg}
+
+                print(f"Found file to delete: {file_to_delete}")
+            except Exception as list_error:
+                error_msg = f"Could not list files: {list_error}"
+                print(f"ERROR: {error_msg}")
+                return {"success": False, "message": error_msg}
+
+            # Try multiple deletion approaches
+            deletion_successful = False
+
+            # Approach 1: Use the standard remove() method
+            print(f"Attempting deletion with remove(['{file_path}'])")
+            try:
+                delete_response = supabase.storage.from_(supabase_bucket).remove([file_path])
+                print(f"Delete response type: {type(delete_response)}")
+                print(f"Delete response: {delete_response}")
+
+                # Check if we got a successful response
+                if isinstance(delete_response, list) and len(delete_response) > 0:
+                    deletion_successful = True
+                    print(f"SUCCESS: Standard remove() method worked")
+            except Exception as del_ex:
+                print(f"Standard remove() failed: {str(del_ex)}")
+                # Continue to try other methods
+
+            # If standard method failed, the issue is permissions
+            if not deletion_successful:
+                error_msg = (
+                    "Unable to delete file - This is likely a Supabase Storage permissions issue. "
+                    "Please check your Supabase Storage bucket policies. "
+                    "You need to add a DELETE policy for the 'videos' bucket. "
+                    "Go to: Supabase Dashboard → Storage → videos bucket → Policies → New Policy → "
+                    "Allow DELETE for authenticated users where (bucket_id = 'videos')"
+                )
+                print(f"ERROR: {error_msg}")
+                return {"success": False, "message": error_msg}
+
+            # Also delete associated feedback segments if session_id matches
+            session_id = filename.replace('.mp4', '')
+            try:
+                feedback_response = supabase.table("ai_feedback_segments")\
+                    .delete()\
+                    .eq("session_id", session_id)\
+                    .eq("user_id", user_id)\
+                    .execute()
+                print(f"Deleted feedback segments for session {session_id}: {feedback_response}")
+            except Exception as fb_error:
+                print(f"Warning: Could not delete feedback segments: {fb_error}")
+                # Continue even if feedback deletion fails
+
+            return {
+                "success": True,
+                "message": "Video deleted successfully"
+            }
+        except Exception as e:
+            error_message = str(e)
+            print(f"Error deleting video: {error_message}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "message": error_message}
+
+    return await asyncio.to_thread(delete_operations)
