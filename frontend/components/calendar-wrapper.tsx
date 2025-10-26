@@ -37,26 +37,36 @@ const CalendarWrapper = () => {
   const supabase = createClient();
   const [exampleFeatures, setExampleFeatures] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchEvents = async () => {
-      const { data, error } = await supabase.from('calendar_events').select();
-      if (error) {
-        console.error('Error fetching events:', error);
-      } else {
-        const formattedEvents = data.map((event: any) => ({
-          id: event.id,
-          name: event.title,
-          startAt: new Date(event.start_at),
-          endAt: new Date(event.end_at),
-          status: statuses[0], // Default status
-        }));
-        setExampleFeatures(formattedEvents);
+    const fetchUserAndEvents = async () => {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError) {
+        console.error('Error fetching user:', userError);
+        return;
+      }
+      
+      if (user) {
+        setUserId(user.id);
+        const { data, error } = await supabase.from('calendar_events').select().eq('user_id', user.id);
+        if (error) {
+          console.error('Error fetching events:', error);
+        } else {
+          const formattedEvents = data.map((event: any) => ({
+            id: event.id,
+            name: event.title,
+            startAt: new Date(event.start_at),
+            endAt: new Date(event.end_at),
+            status: statuses[0], // Default status
+          }));
+          setExampleFeatures(formattedEvents);
+        }
       }
     };
 
-    fetchEvents();
-  }, [supabase]);
+    fetchUserAndEvents();
+  }, [supabase, userId]);
 
   const earliestYear =
     exampleFeatures
@@ -83,6 +93,7 @@ const CalendarWrapper = () => {
       .from('calendar_events')
       .insert([
         {
+          user_id: userId, // Add the user_id here
           title,
           description,
           location,

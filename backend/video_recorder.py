@@ -143,7 +143,7 @@ class VideoRecorder:
                     text=True,
                 )
                 print(f"Converted WebM blob to MP4: {self.final_video_path}")
-                return self.final_video_path
+                return os.path.abspath(self.final_video_path)
             except subprocess.CalledProcessError as e:
                 print(f"FFmpeg conversion error (primary pipeline): {e.stderr}")
                 print("Attempting simplified fallback conversion…")
@@ -178,7 +178,7 @@ class VideoRecorder:
                     print(
                         f"Fallback FFmpeg conversion succeeded: {self.final_video_path}"
                     )
-                    return self.final_video_path
+                    return os.path.abspath(self.final_video_path)
                 except subprocess.CalledProcessError as fallback_error:
                     print(
                         f"Fallback FFmpeg conversion failed: {fallback_error.stderr}"
@@ -236,18 +236,18 @@ class VideoRecorder:
                         self.final_video_path
                     ], check=True, capture_output=True, text=True)
                     print(f"Combined video with audio: {self.final_video_path}")
-                    return self.final_video_path
+                    return os.path.abspath(self.final_video_path)
                 except subprocess.CalledProcessError as e:
                     print(f"FFmpeg error: {e.stderr}")
                     print("Returning video without audio")
-                    return self.temp_video_path
+                    return os.path.abspath(self.temp_video_path)
                 except FileNotFoundError:
                     print("FFmpeg not found. Returning video without audio.")
                     print("Install FFmpeg: brew install ffmpeg (on macOS)")
-                    return self.temp_video_path
+                    return os.path.abspath(self.temp_video_path)
             else:
                 # No audio, return video only
-                return self.temp_video_path
+                return os.path.abspath(self.temp_video_path)
                 
         except Exception as e:
             print(f"Error saving video: {e}")
