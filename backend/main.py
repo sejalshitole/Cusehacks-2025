@@ -7,6 +7,9 @@ import json
 import base64
 import asyncio
 import uuid
+import httpx
+import tempfile
+import os
 from video_recorder import (
     VideoRecorder,
     upload_to_supabase,
@@ -14,6 +17,8 @@ from video_recorder import (
     save_feedback_segments_to_supabase,
 )
 from feedback_agent import FeedbackAgent
+from detailed_report.detailed_report import VideoAnalyzer
+import asyncio
 
 app = FastAPI(title="SpeakFlow API", version="1.0.0")
 
@@ -149,6 +154,48 @@ async def get_feedback(session_id: str):
 # Store active video recorders and feedback agents
 active_recorders: Dict[str, VideoRecorder] = {}
 active_feedback_agents: Dict[str, FeedbackAgent] = {}
+
+async def run_video_analysis(video_url: str, session_id: str, user_id: str):
+    """Downloads a video from a URL and runs detailed analysis."""
+    print(f"Starting detailed analysis for {video_url}...")
+    
+    # Create a temporary file to store the video
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_file:
+        temp_video_path = temp_file.name
+        print(f"Created temporary file for video download: {temp_video_path}")
+
+    try:
+        # Download the video from the public URL
+        async with httpx.AsyncClient() as client:
+            print(f"Downloading video from {video_url}...")
+            response = await client.get(video_url, follow_redirects=True)
+            response.raise_for_status()  # Raise an exception for bad status codes
+            
+            with open(temp_video_path, "wb") as f:
+                f.write(response.content)
+            print(f"Video downloaded and saved to {temp_video_path}")
+
+        # Now that we have a local file, run the analysis
+        analyzer = VideoAnalyzer()
+        report = analyzer.analyze(
+            temp_video_path,  # Pass the path to the temporary local file
+            extra_metadata={
+                "session_id": session_id,
+                "user_id": user_id,
+            },
+        )
+        print(f"Successfully generated and saved report for session {session_id}")
+
+    except httpx.HTTPStatusError as e:
+        print(f"Error downloading video for analysis: {e}")
+    except Exception as e:
+        print(f"Error during video analysis for session {session_id}: {e}")
+    finally:
+        # Clean up the temporary file
+        if os.path.exists(temp_video_path):
+            os.remove(temp_video_path)
+            print(f"Cleaned up temporary video file: {temp_video_path}")
+
 
 # WebSocket endpoint for real-time video processing
 @app.websocket("/ws/video")
@@ -375,11 +422,13 @@ async def websocket_video_endpoint(websocket: WebSocket):
                         
                         if public_url:
                             print(f"Upload successful: {public_url}")
+                            # Start detailed analysis in the background
+                            asyncio.create_task(run_video_analysis(public_url, session_id, user_id))
                             # Send success response with video URL
                             await websocket.send_json({
                                 "type": "upload_complete",
                                 "url": public_url,
-                                "message": "Video uploaded successfully",
+                                "message": "Video uploaded successfully. Analysis in progress...",
                                 "session_id": session_id,
                             })
                         else:
