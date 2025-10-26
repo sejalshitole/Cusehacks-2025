@@ -549,244 +549,208 @@ export default function WebcamPage() {
   };
 
   return (
-    <main className='h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center p-4 sm:p-6 lg:p-8'>
-      <div className='w-full mx-auto'>
-        <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
-          <div className='lg:col-span-2'>
-            <Card className='overflow-hidden shadow-lg'>
-              <div className='relative aspect-video bg-muted rounded-t-lg'>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className='w-full h-full object-cover'
-                />
-
-                {!isStreaming && (
-                  <div className='absolute inset-0 flex items-center justify-center bg-black/50'>
-                    <div className='text-center space-y-2 text-white'>
-                      <div className='w-16 h-16 mx-auto rounded-full bg-white/10 flex items-center justify-center'>
-                        <svg
-                          className='w-8 h-8'
-                          fill='none'
-                          stroke='currentColor'
-                          viewBox='0 0 24 24'
-                        >
-                          <path
-                            strokeLinecap='round'
-                            strokeLinejoin='round'
-                            strokeWidth={2}
-                            d='M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z'
-                          />
-                        </svg>
-                      </div>
-                      <p className='font-semibold'>Webcam not active</p>
-                    </div>
-                  </div>
-                )}
-
-                <div className='absolute inset-x-0 bottom-0 flex items-end justify-center pb-4 pointer-events-none'>
-                  <div
-                    className={`px-4 py-2 rounded-lg backdrop-blur-sm transition-all duration-300 ${
-                      isAIFeedback
-                        ? "bg-amber-800 text-white border-2 border-white/30 shadow-lg"
-                        : "bg-black/60 text-white"
-                    }`}
-                  >
-                    {isAIFeedback && (
-                      <div className='flex items-center gap-2 mb-1'>
-                        <svg
-                          className='w-4 h-4'
-                          fill='currentColor'
-                          viewBox='0 0 20 20'
-                        >
-                          <path d='M13 7H7v6h6V7z' />
-                          <path
-                            fillRule='evenodd'
-                            d='M7 2a1 1 0 012 0v1h2V2a1 1 0 112 0v1h2a2 2 0 012 2v2h1a1 1 0 110 2h-1v2h1a1 1 0 110 2h-1v2a2 2 0 01-2 2h-2v1a1 1 0 11-2 0v-1H9v1a1 1 0 11-2 0v-1H5a2 2 0 01-2-2v-2H2a1 1 0 110-2h1V9H2a1 1 0 010-2h1V5a2 2 0 012-2h2V2zM5 5h10v10H5V5z'
-                            clipRule='evenodd'
-                          />
-                        </svg>
-                        <span className='text-xs font-semibold'>AI Coach</span>
-                      </div>
-                    )}
-                    <p className='text-lg font-medium text-center'>
-                      {feedbackText}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          </div>
-
-          <div className='space-y-6'>
-            <Card className='shadow-lg'>
-              <CardHeader>
-                <CardTitle>Controls</CardTitle>
-                <CardDescription>
-                  {recordingState === "idle" && "Start a new recording session"}
-                  {recordingState === "recording" && "Recording in progress..."}
-                  {recordingState === "processing" && "Processing your video..."}
-                  {recordingState === "review" && "Review and submit your recording"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className='space-y-4'>
-                {/* Topic Selection */}
-                {recordingState === "idle" && (
-                  <div className='space-y-3 pb-4 border-b'>
-                    <Label htmlFor='topic-select'>Recording Topic</Label>
-                    {!isCreatingTopic ? (
-                      <div className='flex gap-2'>
-                        <Select
-                          value={selectedTopicId || ""}
-                          onValueChange={setSelectedTopicId}
-                        >
-                          <SelectTrigger id='topic-select' className='flex-1'>
-                            <SelectValue placeholder='Select a topic' />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {topics.map((topic) => (
-                              <SelectItem key={topic.id} value={topic.id}>
-                                {topic.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          variant='outline'
-                          size='sm'
-                          onClick={() => setIsCreatingTopic(true)}
-                        >
-                          + New
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className='space-y-2'>
-                        <Input
-                          placeholder='Topic name'
-                          value={newTopicName}
-                          onChange={(e) => setNewTopicName(e.target.value)}
-                        />
-                        <Input
-                          placeholder='Description (optional)'
-                          value={newTopicDescription}
-                          onChange={(e) => setNewTopicDescription(e.target.value)}
-                        />
-                        <div className='flex gap-2'>
-                          <Button
-                            size='sm'
-                            onClick={handleCreateTopic}
-                            disabled={!newTopicName.trim()}
-                          >
-                            Create
-                          </Button>
-                          <Button
-                            size='sm'
-                            variant='outline'
-                            onClick={() => {
-                              setIsCreatingTopic(false);
-                              setNewTopicName("");
-                              setNewTopicDescription("");
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className='flex flex-col space-y-2'>
-                  {recordingState === "idle" && (
-                    <Button onClick={startWebcam} size='lg'>
-                      Start Recording
-                    </Button>
-                  )}
-
-                  {recordingState === "recording" && (
-                    <Button
-                      onClick={stopWebcam}
-                      variant='destructive'
-                      size='lg'
-                    >
-                      Stop Recording
-                    </Button>
-                  )}
-
-                  {recordingState === "processing" && (
-                    <Button disabled size='lg'>
-                      Processing...
-                    </Button>
-                  )}
-
-                  {recordingState === "review" && (
-                    <div className='flex flex-col space-y-2'>
-                      <Button onClick={handleSubmit} size='lg' className='bg-green-600 hover:bg-green-700'>
-                        Submit Video
-                      </Button>
-                      <Button
-                        onClick={handleRedo}
-                        variant='outline'
-                        size='lg'
-                      >
-                        Redo Recording
-                      </Button>
-                    </div>
-                  )}
-                </div>
-
-                <div className='flex items-center space-x-2 text-sm'>
-                  <div
-                    className={`w-2 h-2 rounded-full ${
-                      isConnected ? "bg-green-500" : "bg-red-500"
-                    }`}
-                  />
-                  <span className='text-muted-foreground'>
-                    {isConnected ? "Connected" : "Disconnected"}
-                  </span>
-                </div>
-
-                {error && (
-                  <div className='bg-destructive/10 text-destructive px-3 py-2 rounded-md text-sm font-medium'>
-                    <p>{error}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className='shadow-lg'>
-              <CardHeader>
-                <CardTitle>AI Feedback Timeline</CardTitle>
-                <CardDescription>
-                  Timestamped notes captured throughout your session
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {feedbackSegments.length ? (
-                  <div className='space-y-3 max-h-64 overflow-y-auto pr-1'>
-                    {feedbackSegments.map((segment) => (
-                      <div
-                        key={segment.id}
-                        className='rounded-md border border-border/50 bg-muted/30 p-3'
-                      >
-                        <p className='text-sm text-foreground font-medium'>
-                          {formatTime(segment.startSeconds)} -{" "}
-                          {formatTime(segment.endSeconds)} -{" "}
-                          {segment.feedbackText}
-                        </p>
-                      </div>
+    <main className='h-screen bg-gray-50 dark:bg-gray-950 flex flex-col'>
+      {/* Topic Selection at Top */}
+      <div className='flex-shrink-0 border-b bg-white dark:bg-gray-900'>
+        <div className='max-w-7xl mx-auto px-4 py-3'>
+          <div className='flex items-center gap-4'>
+            <Label htmlFor='topic-select' className='font-semibold whitespace-nowrap'>Recording Topic:</Label>
+            {!isCreatingTopic ? (
+              <div className='flex gap-2 flex-1'>
+                <Select
+                  value={selectedTopicId || ""}
+                  onValueChange={setSelectedTopicId}
+                >
+                  <SelectTrigger id='topic-select' className='max-w-xs'>
+                    <SelectValue placeholder='Select a topic' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {topics.map((topic) => (
+                      <SelectItem key={topic.id} value={topic.id}>
+                        {topic.name}
+                      </SelectItem>
                     ))}
-                  </div>
-                ) : (
-                  <p className='text-sm text-muted-foreground'>
-                    AI feedback will appear here once you start presenting.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => setIsCreatingTopic(true)}
+                >
+                  + New
+                </Button>
+              </div>
+            ) : (
+              <div className='flex gap-2 flex-1'>
+                <Input
+                  placeholder='Topic name'
+                  value={newTopicName}
+                  onChange={(e) => setNewTopicName(e.target.value)}
+                  className='max-w-xs'
+                />
+                <Input
+                  placeholder='Description (optional)'
+                  value={newTopicDescription}
+                  onChange={(e) => setNewTopicDescription(e.target.value)}
+                  className='max-w-xs'
+                />
+                <Button
+                  size='sm'
+                  onClick={handleCreateTopic}
+                  disabled={!newTopicName.trim()}
+                >
+                  Create
+                </Button>
+                <Button
+                  size='sm'
+                  variant='outline'
+                  onClick={() => {
+                    setIsCreatingTopic(false);
+                    setNewTopicName("");
+                    setNewTopicDescription("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            )}
           </div>
+        </div>
+      </div>
+
+      {/* Video Container - Full Browser Size */}
+      <div className='flex-1 relative bg-black overflow-hidden'>
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className='w-full h-full object-contain'
+        />
+
+        {/* Webcam Inactive Overlay */}
+        {!isStreaming && (
+          <div className='absolute inset-0 flex items-center justify-center bg-black/50'>
+            <div className='text-center space-y-2 text-white'>
+              <div className='w-16 h-16 mx-auto rounded-full bg-white/10 flex items-center justify-center'>
+                <svg
+                  className='w-8 h-8'
+                  fill='none'
+                  stroke='currentColor'
+                  viewBox='0 0 24 24'
+                >
+                  <path
+                    strokeLinecap='round'
+                    strokeLinejoin='round'
+                    strokeWidth={2}
+                    d='M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z'
+                  />
+                </svg>
+              </div>
+              <p className='font-semibold'>Webcam not active</p>
+            </div>
+          </div>
+        )}
+
+        {/* Recording Controls Overlay - Top Left */}
+        <div className='absolute top-4 left-4 flex flex-col gap-3 pointer-events-none'>
+          <div className='pointer-events-auto'>
+            {recordingState === "idle" && (
+              <Button onClick={startWebcam} size='lg' className='bg-red-600 hover:bg-red-700 text-white shadow-xl'>
+                <svg className='w-5 h-5 mr-2' fill='currentColor' viewBox='0 0 20 20'>
+                  <circle cx='10' cy='10' r='6' />
+                </svg>
+                Start Recording
+              </Button>
+            )}
+
+            {recordingState === "recording" && (
+              <Button
+                onClick={stopWebcam}
+                size='lg'
+                className='bg-gray-900 hover:bg-black text-white shadow-xl'
+              >
+                <svg className='w-5 h-5 mr-2' fill='currentColor' viewBox='0 0 20 20'>
+                  <rect x='6' y='6' width='8' height='8' />
+                </svg>
+                Stop Recording
+              </Button>
+            )}
+
+            {recordingState === "processing" && (
+              <Button disabled size='lg' className='shadow-xl'>
+                Processing...
+              </Button>
+            )}
+
+            {recordingState === "review" && (
+              <div className='flex flex-col space-y-3'>
+                <Button onClick={handleSubmit} size='lg' className='bg-green-600 hover:bg-green-700 shadow-xl'>
+                  Submit Video
+                </Button>
+                <Button
+                  onClick={handleRedo}
+                  variant='outline'
+                  size='lg'
+                  className='bg-white shadow-xl'
+                >
+                  Redo Recording
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* AI Feedback Overlay - Bottom (Transparent) */}
+        <div className='absolute inset-x-0 bottom-0 flex items-end justify-center pb-4 pointer-events-none'>
+          <div
+            className={`px-4 py-2 rounded-lg transition-all duration-300 ${
+              isAIFeedback
+                ? "bg-amber-800/70 text-white border-2 border-white/30 shadow-lg backdrop-blur-sm"
+                : "bg-black/40 text-white backdrop-blur-sm"
+            }`}
+          >
+            {isAIFeedback && (
+              <div className='flex items-center gap-2 mb-1'>
+                <svg
+                  className='w-4 h-4'
+                  fill='currentColor'
+                  viewBox='0 0 20 20'
+                >
+                  <path d='M13 7H7v6h6V7z' />
+                  <path
+                    fillRule='evenodd'
+                    d='M7 2a1 1 0 012 0v1h2V2a1 1 0 112 0v1h2a2 2 0 012 2v2h1a1 1 0 110 2h-1v2h1a1 1 0 110 2h-1v2a2 2 0 01-2 2h-2v1a1 1 0 11-2 0v-1H9v1a1 1 0 11-2 0v-1H5a2 2 0 01-2-2v-2H2a1 1 0 110-2h1V9H2a1 1 0 010-2h1V5a2 2 0 012-2h2V2zM5 5h10v10H5V5z'
+                    clipRule='evenodd'
+                  />
+                </svg>
+                <span className='text-xs font-semibold'>AI Coach</span>
+              </div>
+            )}
+            <p className='text-lg font-medium text-center'>
+              {feedbackText}
+            </p>
+          </div>
+        </div>
+
+        {/* Connection Status & Error - Top Right */}
+        <div className='absolute top-4 right-4 flex flex-col items-end gap-2'>
+          <div className='flex items-center space-x-2 text-sm bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-full'>
+            <div
+              className={`w-2 h-2 rounded-full ${
+                isConnected ? "bg-green-500" : "bg-red-500"
+              }`}
+            />
+            <span className='text-white font-medium'>
+              {isConnected ? "Connected" : "Disconnected"}
+            </span>
+          </div>
+
+          {error && (
+            <div className='bg-red-600/90 backdrop-blur-sm text-white px-3 py-2 rounded-md text-sm font-medium max-w-xs'>
+              <p>{error}</p>
+            </div>
+          )}
         </div>
       </div>
     </main>
