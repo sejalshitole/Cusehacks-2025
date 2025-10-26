@@ -17,6 +17,11 @@ from video_recorder import (
     save_feedback_segments_to_supabase,
     rename_video,
     delete_video,
+    get_user_topics,
+    create_topic,
+    save_video_session,
+    get_videos_by_topic,
+    cleanup_all_user_data,
 )
 from feedback_agent import FeedbackAgent
 from detailed_report.detailed_report import VideoAnalyzer
@@ -52,6 +57,20 @@ class RenameVideoRequest(BaseModel):
 class DeleteVideoRequest(BaseModel):
     user_id: str
     filename: str
+
+class CreateTopicRequest(BaseModel):
+    user_id: str
+    name: str
+    description: Optional[str] = ""
+
+class SaveVideoSessionRequest(BaseModel):
+    session_id: str
+    user_id: str
+    topic_id: Optional[str] = None
+    video_url: str
+    filename: str
+    duration_seconds: Optional[float] = None
+    size_bytes: Optional[int] = None
 
 # Routes
 @app.get("/")
@@ -200,6 +219,98 @@ async def delete_video_endpoint(request: DeleteVideoRequest):
         return result
     except Exception as e:
         print(f"Error in delete_video endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+@app.get("/api/topics/{user_id}")
+async def get_topics(user_id: str):
+    """Get all topics for a user"""
+    try:
+        result = await get_user_topics(user_id)
+        return result
+    except Exception as e:
+        print(f"Error in get_topics endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": str(e),
+            "topics": []
+        }
+
+@app.post("/api/topics/create")
+async def create_topic_endpoint(request: CreateTopicRequest):
+    """Create a new topic"""
+    try:
+        result = await create_topic(
+            user_id=request.user_id,
+            name=request.name,
+            description=request.description
+        )
+        return result
+    except Exception as e:
+        print(f"Error in create_topic endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+@app.post("/api/video-sessions/save")
+async def save_video_session_endpoint(request: SaveVideoSessionRequest):
+    """Save video session metadata"""
+    try:
+        result = await save_video_session(
+            session_id=request.session_id,
+            user_id=request.user_id,
+            topic_id=request.topic_id,
+            video_url=request.video_url,
+            filename=request.filename,
+            duration_seconds=request.duration_seconds,
+            size_bytes=request.size_bytes
+        )
+        return result
+    except Exception as e:
+        print(f"Error in save_video_session endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+@app.get("/api/videos/by-topic/{user_id}")
+async def get_videos_by_topic_endpoint(user_id: str, topic_id: Optional[str] = None):
+    """Get videos filtered by topic"""
+    try:
+        result = await get_videos_by_topic(user_id, topic_id)
+        return result
+    except Exception as e:
+        print(f"Error in get_videos_by_topic endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": str(e),
+            "videos": []
+        }
+
+@app.post("/api/cleanup/{user_id}")
+async def cleanup_user_data_endpoint(user_id: str):
+    """Clean up all user data - USE WITH CAUTION, THIS IS IRREVERSIBLE!"""
+    try:
+        print(f"=== CLEANUP REQUEST FOR USER: {user_id} ===")
+        result = await cleanup_all_user_data(user_id)
+        print(f"=== CLEANUP RESULT ===")
+        print(f"Result: {result}")
+        return result
+    except Exception as e:
+        print(f"Error in cleanup endpoint: {e}")
         import traceback
         traceback.print_exc()
         return {
