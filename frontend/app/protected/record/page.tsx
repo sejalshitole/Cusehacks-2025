@@ -33,6 +33,7 @@ export default function WebcamPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const videoChunksRef = useRef<Blob[]>([]);
   const frameIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const recordedBlobRef = useRef<Blob | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string>("");
@@ -45,6 +46,10 @@ export default function WebcamPage() {
   const [feedbackSegments, setFeedbackSegments] = useState<FeedbackSegment[]>(
     []
   );
+  const [recordingState, setRecordingState] = useState<
+    "idle" | "recording" | "processing" | "review"
+  >("idle");
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const supabase = createClient();
 
   // Fetch user ID on component mount
@@ -177,8 +182,10 @@ export default function WebcamPage() {
         );
         setIsAIFeedback(false);
       } else if (data.type === "upload_complete") {
-        setFeedbackText(`Video uploaded successfully! URL: ${data.url}`);
+        setFeedbackText(`Recording complete! Review your video.`);
         setIsAIFeedback(false);
+        setVideoUrl(data.url);
+        setRecordingState("review");
         console.log("Video URL:", data.url);
       } else if (data.type === "feedback_saved") {
         const savedCount = data.segments_saved ?? data.count ?? 0;
@@ -275,14 +282,9 @@ export default function WebcamPage() {
       );
 
       if (!recordedChunks.length) {
-        console.log("No recorded chunks, sending stop without video");
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(
-            JSON.stringify({
-              type: "stop",
-            })
-          );
-        }
+        console.log("No recorded chunks");
+        setRecordingState("idle");
+        setFeedbackText("No video recorded. Please try again.");
         mediaRecorderRef.current = null;
         return;
       }
@@ -292,30 +294,13 @@ export default function WebcamPage() {
         `Creating final blob: ${blob.size} bytes from ${recordedChunks.length} chunks`
       );
 
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64Data = reader.result as string;
-        console.log(`Sending complete video: ${base64Data.length} chars`);
+      // Store the blob for later submission
+      recordedBlobRef.current = blob;
 
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(
-            JSON.stringify({
-              type: "video_complete",
-              data: base64Data,
-            })
-          );
+      // Move to review state without uploading
+      setRecordingState("review");
+      setFeedbackText("Recording complete! Review and submit or redo.");
 
-          wsRef.current.send(
-            JSON.stringify({
-              type: "stop",
-            })
-          );
-        } else {
-          console.error("WebSocket not open, cannot send video");
-        }
-      };
-
-      reader.readAsDataURL(blob);
       mediaRecorderRef.current = null;
     };
 
@@ -376,6 +361,7 @@ export default function WebcamPage() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         setIsStreaming(true);
+        setRecordingState("recording");
         setError("");
         setFeedbackText("Great! You're all set");
 
@@ -397,7 +383,7 @@ export default function WebcamPage() {
       stream.getTracks().forEach((track) => track.stop());
       videoRef.current.srcObject = null;
       setIsStreaming(false);
-      setFeedbackText("Processing and uploading video...");
+      setFeedbackText("Finalizing recording...");
       setIsAIFeedback(false);
 
       if (frameIntervalRef.current) {
@@ -408,6 +394,60 @@ export default function WebcamPage() {
       if (mediaRecorderRef.current) {
         mediaRecorderRef.current.stop();
       }
+    }
+  };
+
+  const handleRedo = () => {
+    // Discard the recorded video and reset states
+    recordedBlobRef.current = null;
+    setRecordingState("idle");
+    setVideoUrl(null);
+    setFeedbackSegments([]);
+    setSessionId(null);
+    setFeedbackText("Position yourself in the center");
+    setError("");
+  };
+
+  const handleSubmit = async () => {
+    // Upload the video when user clicks submit
+    if (!recordedBlobRef.current) {
+      setError("No video to submit");
+      return;
+    }
+
+    setRecordingState("processing");
+    setFeedbackText("Uploading video...");
+
+    try {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64Data = reader.result as string;
+        console.log(`Sending complete video: ${base64Data.length} chars`);
+
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(
+            JSON.stringify({
+              type: "video_complete",
+              data: base64Data,
+            })
+          );
+
+          wsRef.current.send(
+            JSON.stringify({
+              type: "stop",
+            })
+          );
+        } else {
+          setError("Connection lost. Please try again.");
+          setRecordingState("review");
+        }
+      };
+
+      reader.readAsDataURL(recordedBlobRef.current);
+    } catch (err) {
+      console.error("Error submitting video:", err);
+      setError("Failed to submit video");
+      setRecordingState("review");
     }
   };
 
@@ -487,22 +527,50 @@ export default function WebcamPage() {
             <Card className='shadow-lg'>
               <CardHeader>
                 <CardTitle>Controls</CardTitle>
-                <CardDescription>Start or stop your webcam</CardDescription>
+                <CardDescription>
+                  {recordingState === "idle" && "Start a new recording session"}
+                  {recordingState === "recording" && "Recording in progress..."}
+                  {recordingState === "processing" && "Processing your video..."}
+                  {recordingState === "review" && "Review and submit your recording"}
+                </CardDescription>
               </CardHeader>
               <CardContent className='space-y-4'>
                 <div className='flex flex-col space-y-2'>
-                  {!isStreaming ? (
+                  {recordingState === "idle" && (
                     <Button onClick={startWebcam} size='lg'>
-                      Start Webcam
+                      Start Recording
                     </Button>
-                  ) : (
+                  )}
+
+                  {recordingState === "recording" && (
                     <Button
                       onClick={stopWebcam}
                       variant='destructive'
                       size='lg'
                     >
-                      Stop Webcam
+                      Stop Recording
                     </Button>
+                  )}
+
+                  {recordingState === "processing" && (
+                    <Button disabled size='lg'>
+                      Processing...
+                    </Button>
+                  )}
+
+                  {recordingState === "review" && (
+                    <div className='flex flex-col space-y-2'>
+                      <Button onClick={handleSubmit} size='lg' className='bg-green-600 hover:bg-green-700'>
+                        Submit Video
+                      </Button>
+                      <Button
+                        onClick={handleRedo}
+                        variant='outline'
+                        size='lg'
+                      >
+                        Redo Recording
+                      </Button>
+                    </div>
                   )}
                 </div>
 

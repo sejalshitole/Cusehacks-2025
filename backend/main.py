@@ -15,6 +15,8 @@ from video_recorder import (
     upload_to_supabase,
     get_user_videos,
     save_feedback_segments_to_supabase,
+    rename_video,
+    delete_video,
 )
 from feedback_agent import FeedbackAgent
 from detailed_report.detailed_report import VideoAnalyzer
@@ -41,6 +43,15 @@ class Item(BaseModel):
     description: Optional[str] = None
     price: float
     quantity: int = 1
+
+class RenameVideoRequest(BaseModel):
+    user_id: str
+    old_filename: str
+    new_filename: str
+
+class DeleteVideoRequest(BaseModel):
+    user_id: str
+    filename: str
 
 # Routes
 @app.get("/")
@@ -149,6 +160,51 @@ async def get_feedback(session_id: str):
             "success": False,
             "message": str(e),
             "feedback": []
+        }
+
+@app.post("/api/videos/rename")
+async def rename_video_endpoint(request: RenameVideoRequest):
+    """Rename a video file"""
+    try:
+        result = await rename_video(
+            user_id=request.user_id,
+            old_filename=request.old_filename,
+            new_filename=request.new_filename
+        )
+        return result
+    except Exception as e:
+        print(f"Error in rename_video endpoint: {e}")
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+@app.post("/api/videos/delete")
+async def delete_video_endpoint(request: DeleteVideoRequest):
+    """Delete a video file"""
+    try:
+        print(f"=== DELETE VIDEO REQUEST ===")
+        print(f"User ID: {request.user_id}")
+        print(f"Filename: {request.filename}")
+        print(f"========================")
+
+        result = await delete_video(
+            user_id=request.user_id,
+            filename=request.filename
+        )
+
+        print(f"=== DELETE VIDEO RESULT ===")
+        print(f"Result: {result}")
+        print(f"========================")
+
+        return result
+    except Exception as e:
+        print(f"Error in delete_video endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": str(e)
         }
 
 # Store active video recorders and feedback agents
